@@ -1,3 +1,4 @@
+//To be used if we use a database to store data
 using Microsoft.EntityFrameworkCore;
 using Domain.Entities;
 using WorkflowAction = Domain.Entities.Action;

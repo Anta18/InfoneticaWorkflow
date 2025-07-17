@@ -1,0 +1,27 @@
+[
+  {
+    "Id": "dcc2b54a-d372-4d8f-8e28-14e75ff74672",
+    "Name": "Onboarding",
+    "States": [
+      {
+        "Id": "2c3916e1-cae7-48c8-8e94-4b4399970d8f",
+        "Name": "New",
+        "IsStart": true,
+        "IsEnd": false
+      },
+      {
+        "Id": "a0b72343-8d94-4c32-b912-a34220d33a1a",
+        "Name": "Active",
+        "IsStart": false,
+        "IsEnd": false
+      },
+      {
+        "Id": "cba4be97-d758-45c1-a5a8-790226b38edd",
+        "Name": "Closed",
+        "IsStart": false,
+        "IsEnd": true
+      }
+    ],
+    "Actions": []
+  }
+]

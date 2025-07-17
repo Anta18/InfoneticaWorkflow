@@ -5,28 +5,25 @@ using Domain.Entities;
 using Domain.Interfaces;
 using Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Infrastructure.Storage;
 
 namespace Infrastructure.Repositories
 {
     public class WorkflowDefinitionRepository : IWorkflowDefinitionRepository
     {
-        private readonly WorkflowDbContext _db;
-        public WorkflowDefinitionRepository(WorkflowDbContext db) => _db = db;
-        public async Task AddAsync(WorkflowDefinition definition)
+        // private readonly WorkflowDbContext _db;
+        private readonly InMemoryStore<WorkflowDefinition> _store;
+        public WorkflowDefinitionRepository()
         {
-            await _db.WorkflowDefinitions.AddAsync(definition);
-            await _db.SaveChangesAsync();              // <— COMMIT
+            _store = new InMemoryStore<WorkflowDefinition>("definitions.json");
         }
+        public Task AddAsync(WorkflowDefinition definition)
+            => _store.AddAsync(definition.Id, definition);
+
         public Task<WorkflowDefinition?> GetByIdAsync(Guid id)
-            => _db.WorkflowDefinitions
-                  .Include(w => w.States)
-                  .Include(w => w.Actions)
-                  .SingleOrDefaultAsync(w => w.Id == id);
+            => _store.GetAsync(id);
+
         public Task<IEnumerable<WorkflowDefinition>> ListAllAsync()
-            => _db.WorkflowDefinitions
-                  .Include(w => w.States)
-                  .Include(w => w.Actions)
-                  .ToListAsync()
-                  .ContinueWith(t => (IEnumerable<WorkflowDefinition>)t.Result);
+            => _store.ListAsync();
     }
 }

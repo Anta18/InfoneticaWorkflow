@@ -3,7 +3,7 @@ using Api.Extensions;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services
-    .AddInfrastructure(builder.Configuration)
+    .AddInfrastructure()
     .AddApplication()
     .AddApi();
 

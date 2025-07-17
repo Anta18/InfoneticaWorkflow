@@ -9,12 +9,10 @@ namespace Api.Extensions
 {
     public static class ServiceCollectionExtensions
     {
-        public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration config)
+        public static IServiceCollection AddInfrastructure(this IServiceCollection services)
         {
-            services.AddDbContext<WorkflowDbContext>(opts =>
-                opts.UseSqlServer(config.GetConnectionString("DefaultConnection")));
-            services.AddScoped<IWorkflowDefinitionRepository, WorkflowDefinitionRepository>();
-            services.AddScoped<IWorkflowInstanceRepository, WorkflowInstanceRepository>();
+            services.AddSingleton<IWorkflowDefinitionRepository, WorkflowDefinitionRepository>();
+            services.AddSingleton<IWorkflowInstanceRepository, WorkflowInstanceRepository>();
             return services;
         }
 
