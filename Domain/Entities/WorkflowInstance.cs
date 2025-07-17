@@ -25,10 +25,19 @@ namespace Domain.Entities
             CreatedAt = DateTime.UtcNow;
         }
 
-        public void ExecuteAction(Action action)
+        public void ExecuteAction(Action action, IEnumerable<State> states)
         {
+            if (!action.Enabled)
+                throw new InvalidOperationException("Action is disabled.");
+
+            var currentState = states.SingleOrDefault(s => s.Id == CurrentStateId)
+                ?? throw new InvalidOperationException("Current state not found.");
+            if (!currentState.Enabled)
+                throw new InvalidOperationException("Current state is disabled.");
+
             if (action.FromStateId != CurrentStateId)
                 throw new InvalidOperationException("Invalid action for current state.");
+
             CurrentStateId = action.ToStateId;
             _history.Add(new InstanceHistoryEntry(Guid.NewGuid(), Id, action.Id, DateTime.UtcNow));
         }

@@ -8,16 +8,18 @@ namespace Domain.Entities
         public string Name { get; private set; } = null!;
         public bool IsStart { get; private set; }
         public bool IsEnd { get; private set; }
+        public bool Enabled { get; private set; } = true;
         internal Guid DefinitionId { get; set; }
 
         private State() { }
 
-        public State(Guid id, string name, bool isStart = false, bool isEnd = false)
+        public State(Guid id, string name, bool isStart = false, bool isEnd = false, bool enabled = true)
         {
             Id = id;
             Name = name;
             IsStart = isStart;
             IsEnd = isEnd;
+            Enabled = enabled;
         }
     }
 }

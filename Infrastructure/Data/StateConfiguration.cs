@@ -21,6 +21,9 @@ namespace Infrastructure.Data.Configurations
             builder.Property(s => s.IsEnd)
                    .IsRequired();
 
+            builder.Property(s => s.Enabled)
+                    .IsRequired();
+
             builder.Property<Guid>("DefinitionId");
             builder.HasIndex("DefinitionId");
         }

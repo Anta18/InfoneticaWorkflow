@@ -7,9 +7,8 @@ using System.Threading.Tasks;
 
 namespace Infrastructure.Storage
 {
-    /// <summary>
-    /// A simple thread-safe in-memory store that can snapshot to a JSON file.
-    /// </summary>
+    /// A simple in-memory store that can snapshot to a JSON file.
+
     public class InMemoryStore<T>
     {
         private readonly ConcurrentDictionary<Guid, T> _dict = new();

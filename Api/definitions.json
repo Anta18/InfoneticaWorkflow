@@ -1,25 +1,28 @@
 [
   {
-    "Id": "dcc2b54a-d372-4d8f-8e28-14e75ff74672",
+    "Id": "478e0460-5cca-46e8-9813-3a36069af3af",
     "Name": "Onboarding",
     "States": [
       {
-        "Id": "2c3916e1-cae7-48c8-8e94-4b4399970d8f",
+        "Id": "6fccce31-a273-46de-b050-0516bd403268",
         "Name": "New",
         "IsStart": true,
-        "IsEnd": false
+        "IsEnd": false,
+        "Enabled": true
       },
       {
-        "Id": "a0b72343-8d94-4c32-b912-a34220d33a1a",
+        "Id": "1efc3bd1-726a-4c9f-904f-ec2fff924e0b",
         "Name": "Active",
         "IsStart": false,
-        "IsEnd": false
+        "IsEnd": false,
+        "Enabled": true
       },
       {
-        "Id": "cba4be97-d758-45c1-a5a8-790226b38edd",
+        "Id": "df45976c-cc2b-4e1e-af3b-04912b4981be",
         "Name": "Closed",
         "IsStart": false,
-        "IsEnd": true
+        "IsEnd": true,
+        "Enabled": true
       }
     ],
     "Actions": []

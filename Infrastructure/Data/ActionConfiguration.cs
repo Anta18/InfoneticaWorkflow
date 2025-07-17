@@ -23,6 +23,7 @@ namespace Infrastructure.Data.Configurations
 
             builder.Property(a => a.FromStateId).IsRequired();
             builder.Property(a => a.ToStateId).IsRequired();
+            builder.Property(a => a.Enabled).IsRequired();
 
             builder.HasOne<State>()
                    .WithMany()

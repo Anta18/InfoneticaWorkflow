@@ -69,7 +69,7 @@ namespace Application.Services
                 ?? throw new KeyNotFoundException($"Definition '{instance.DefinitionId}' not found.");
             var action = definition.Actions.SingleOrDefault(a => a.Id == actionId)
                 ?? throw new InvalidOperationException($"Action '{actionId}' not in definition.");
-            instance.ExecuteAction(action);
+            instance.ExecuteAction(action, definition.States);
             await _insts.UpdateAsync(instance);
         }
 

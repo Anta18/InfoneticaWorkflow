@@ -26,6 +26,8 @@ namespace Domain.Entities
         {
             if (_states.Any(s => s.Id == state.Id))
                 throw new InvalidOperationException($"State {state.Name} already added.");
+            if (state.IsStart && _states.Any(s => s.IsStart))
+                throw new InvalidOperationException("Start state already defined.");
             _states.Add(state);
         }
 
