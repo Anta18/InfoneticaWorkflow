@@ -12,8 +12,11 @@ namespace Infrastructure.Repositories
     {
         private readonly WorkflowDbContext _db;
         public WorkflowDefinitionRepository(WorkflowDbContext db) => _db = db;
-        public Task AddAsync(WorkflowDefinition def)
-            => _db.WorkflowDefinitions.AddAsync(def).AsTask();
+        public async Task AddAsync(WorkflowDefinition definition)
+        {
+            await _db.WorkflowDefinitions.AddAsync(definition);
+            await _db.SaveChangesAsync();              // <— COMMIT
+        }
         public Task<WorkflowDefinition?> GetByIdAsync(Guid id)
             => _db.WorkflowDefinitions
                   .Include(w => w.States)

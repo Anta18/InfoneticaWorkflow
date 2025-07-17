@@ -12,8 +12,11 @@ namespace Infrastructure.Repositories
     {
         private readonly WorkflowDbContext _db;
         public WorkflowInstanceRepository(WorkflowDbContext db) => _db = db;
-        public Task AddAsync(WorkflowInstance inst)
-            => _db.WorkflowInstances.AddAsync(inst).AsTask();
+        public async Task AddAsync(WorkflowInstance instance)
+        {
+            await _db.WorkflowInstances.AddAsync(instance);
+            await _db.SaveChangesAsync();              // <— COMMIT
+        }
         public Task<WorkflowInstance?> GetByIdAsync(Guid id)
             => _db.WorkflowInstances
                   .Include(i => i.History)
@@ -22,10 +25,10 @@ namespace Infrastructure.Repositories
             => _db.WorkflowInstances
                   .ToListAsync()
                   .ContinueWith(t => (IEnumerable<WorkflowInstance>)t.Result);
-        public Task UpdateAsync(WorkflowInstance inst)
+        public async Task UpdateAsync(WorkflowInstance inst)
         {
             _db.WorkflowInstances.Update(inst);
-            return _db.SaveChangesAsync();
+            await _db.SaveChangesAsync();
         }
     }
 }
