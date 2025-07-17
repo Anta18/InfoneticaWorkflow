@@ -7,7 +7,7 @@ namespace Application.Requests
         public IEnumerable<ActionDto> Actions { get; set; } = Array.Empty<ActionDto>();
     }
 
-    public record StateDto(string Name, bool IsStart, bool IsEnd);
+    public record StateDto(Guid Id, string Name, bool IsStart, bool IsEnd);
 
     public record ActionDto(
         string Name,

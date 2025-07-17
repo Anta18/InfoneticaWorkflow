@@ -25,7 +25,7 @@ namespace Application.Services
         // 1) Create definition
         public async Task<Guid> CreateDefinitionAsync(
             string name,
-            IEnumerable<(string name, bool isStart, bool isEnd)> states,
+            IEnumerable<(Guid id, string name, bool isStart, bool isEnd)> states,
             IEnumerable<(string name, IEnumerable<Guid> fromStates, Guid toState)> actions)
         {
             if (string.IsNullOrWhiteSpace(name))
@@ -33,12 +33,14 @@ namespace Application.Services
 
             var definition = new WorkflowDefinition(Guid.NewGuid(), name);
 
-            foreach (var (stateName, isStart, isEnd) in states)
+            // use the client‑provided GUID for each state
+            foreach (var (stateId, stateName, isStart, isEnd) in states)
             {
-                var state = new State(Guid.NewGuid(), stateName, isStart, isEnd);
+                var state = new State(stateId, stateName, isStart, isEnd);
                 definition.AddState(state);
             }
 
+            // actions can remain unchanged
             foreach (var (actionName, fromStateIds, toStateId) in actions)
             {
                 var action = new WorkflowAction(

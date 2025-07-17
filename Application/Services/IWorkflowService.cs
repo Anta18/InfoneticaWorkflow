@@ -1,11 +1,12 @@
 using Application.DTOs;
+
 namespace Application.Services
 {
     public interface IWorkflowService
     {
         Task<Guid> CreateDefinitionAsync(
             string name,
-            IEnumerable<(string name, bool isStart, bool isEnd)> states,
+            IEnumerable<(Guid id, string name, bool isStart, bool isEnd)> states,
             IEnumerable<(string name, IEnumerable<Guid> fromStates, Guid toState)> actions
         );
 

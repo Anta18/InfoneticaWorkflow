@@ -23,17 +23,16 @@ namespace Api.Extensions
 
         public static void MapWorkflowEndpoints(this WebApplication app)
         {
-            app.MapPost("/definitions", async (
-                    CreateDefinitionRequest req,
-                    IWorkflowService svc) =>
+            app.MapPost("/definitions", async (CreateDefinitionRequest req, IWorkflowService svc) =>
             {
                 var stateTuples = req.States
-                    .Select(s => (s.Name, s.IsStart, s.IsEnd));
+                    .Select(s => (s.Id, s.Name, s.IsStart, s.IsEnd));
+
                 var actionTuples = req.Actions
                     .Select(a => (a.Name, a.FromStates, a.ToState));
 
-                var id = await svc.CreateDefinitionAsync(req.Name, stateTuples, actionTuples);
-                return Results.Created($"/definitions/{id}", new { id });
+                var defId = await svc.CreateDefinitionAsync(req.Name, stateTuples, actionTuples);
+                return Results.Created($"/definitions/{defId}", new { defId });
             });
 
             app.MapGet("/definitions", async (IWorkflowService svc) =>
@@ -68,49 +67,44 @@ namespace Api.Extensions
 
             app.MapPost("/instances/{instId:guid}/actions/{actionId:guid}",
                 async (Guid instId, Guid actionId, IWorkflowService svc) =>
-            {
-                await svc.PerformActionAsync(instId, actionId);
-                return Results.NoContent();
-            });
+                {
+                    await svc.PerformActionAsync(instId, actionId);
+                    return Results.NoContent();
+                });
 
             app.Map("/error", (HttpContext ctx) =>
             {
                 var ex = ctx.Features.Get<IExceptionHandlerFeature>()?.Error;
                 return Results.Problem(detail: ex?.Message, statusCode: 500);
             });
-            // disable state
+
             app.MapPatch("/definitions/{defId:guid}/states/{stateId:guid}/disable",
                 async (Guid defId, Guid stateId, IWorkflowService svc) =>
-            {
-                await svc.DisableStateAsync(defId, stateId);
-                return Results.NoContent();
-            });
+                {
+                    await svc.DisableStateAsync(defId, stateId);
+                    return Results.NoContent();
+                });
 
-            // enable state
             app.MapPatch("/definitions/{defId:guid}/states/{stateId:guid}/enable",
                 async (Guid defId, Guid stateId, IWorkflowService svc) =>
-            {
-                await svc.EnableStateAsync(defId, stateId);
-                return Results.NoContent();
-            });
+                {
+                    await svc.EnableStateAsync(defId, stateId);
+                    return Results.NoContent();
+                });
 
-            // disable action
             app.MapPatch("/definitions/{defId:guid}/actions/{actionId:guid}/disable",
                 async (Guid defId, Guid actionId, IWorkflowService svc) =>
-            {
-                await svc.DisableActionAsync(defId, actionId);
-                return Results.NoContent();
-            });
+                {
+                    await svc.DisableActionAsync(defId, actionId);
+                    return Results.NoContent();
+                });
 
-            // enable action
             app.MapPatch("/definitions/{defId:guid}/actions/{actionId:guid}/enable",
                 async (Guid defId, Guid actionId, IWorkflowService svc) =>
-            {
-                await svc.EnableActionAsync(defId, actionId);
-                return Results.NoContent();
-            });
-
+                {
+                    await svc.EnableActionAsync(defId, actionId);
+                    return Results.NoContent();
+                });
         }
     }
 }
-
