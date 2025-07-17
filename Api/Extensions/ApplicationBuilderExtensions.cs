@@ -1,9 +1,6 @@
-using System;
 using Application.Services;
 using Application.Requests;
-using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics;
-using Microsoft.AspNetCore.Http;
 
 namespace Api.Extensions
 {
@@ -33,7 +30,7 @@ namespace Api.Extensions
                 var stateTuples = req.States
                     .Select(s => (s.Name, s.IsStart, s.IsEnd));
                 var actionTuples = req.Actions
-                    .Select(a => (a.Name, a.From, a.To));
+                    .Select(a => (a.Name, a.FromStates, a.ToState));
 
                 var id = await svc.CreateDefinitionAsync(req.Name, stateTuples, actionTuples);
                 return Results.Created($"/definitions/{id}", new { id });
@@ -81,6 +78,39 @@ namespace Api.Extensions
                 var ex = ctx.Features.Get<IExceptionHandlerFeature>()?.Error;
                 return Results.Problem(detail: ex?.Message, statusCode: 500);
             });
+            // disable state
+            app.MapPatch("/definitions/{defId:guid}/states/{stateId:guid}/disable",
+                async (Guid defId, Guid stateId, IWorkflowService svc) =>
+            {
+                await svc.DisableStateAsync(defId, stateId);
+                return Results.NoContent();
+            });
+
+            // enable state
+            app.MapPatch("/definitions/{defId:guid}/states/{stateId:guid}/enable",
+                async (Guid defId, Guid stateId, IWorkflowService svc) =>
+            {
+                await svc.EnableStateAsync(defId, stateId);
+                return Results.NoContent();
+            });
+
+            // disable action
+            app.MapPatch("/definitions/{defId:guid}/actions/{actionId:guid}/disable",
+                async (Guid defId, Guid actionId, IWorkflowService svc) =>
+            {
+                await svc.DisableActionAsync(defId, actionId);
+                return Results.NoContent();
+            });
+
+            // enable action
+            app.MapPatch("/definitions/{defId:guid}/actions/{actionId:guid}/enable",
+                async (Guid defId, Guid actionId, IWorkflowService svc) =>
+            {
+                await svc.EnableActionAsync(defId, actionId);
+                return Results.NoContent();
+            });
+
         }
     }
 }
+

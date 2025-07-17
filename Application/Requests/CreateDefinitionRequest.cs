@@ -1,6 +1,3 @@
-using System;
-using System.Collections.Generic;
-
 namespace Application.Requests
 {
     public class CreateDefinitionRequest
@@ -11,5 +8,10 @@ namespace Application.Requests
     }
 
     public record StateDto(string Name, bool IsStart, bool IsEnd);
-    public record ActionDto(string Name, Guid From, Guid To);
+
+    public record ActionDto(
+        string Name,
+        IEnumerable<Guid> FromStates,
+        Guid ToState
+    );
 }

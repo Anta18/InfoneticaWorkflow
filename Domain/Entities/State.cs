@@ -1,5 +1,3 @@
-using System;
-
 namespace Domain.Entities
 {
     public class State
@@ -13,7 +11,12 @@ namespace Domain.Entities
 
         private State() { }
 
-        public State(Guid id, string name, bool isStart = false, bool isEnd = false, bool enabled = true)
+        public State(
+            Guid id,
+            string name,
+            bool isStart = false,
+            bool isEnd = false,
+            bool enabled = true)
         {
             Id = id;
             Name = name;
@@ -21,5 +24,8 @@ namespace Domain.Entities
             IsEnd = isEnd;
             Enabled = enabled;
         }
+
+        public void Disable() => Enabled = false;
+        public void Enable() => Enabled = true;
     }
 }

@@ -1,0 +1,1096 @@
+===== ./Api/Api.csproj =====
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <ProjectReference Include="..\Domain\Domain.csproj" />
+    <ProjectReference Include="..\Application\Application.csproj" />
+    <ProjectReference Include="..\Infrastructure\Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="AutoMapper.Extensions.Microsoft.DependencyInjection" Version="12.0.1" />
+    <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.1" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.*">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.7" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="9.0.3" />
+  </ItemGroup>
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+</Project>
+
+===== ./Api/Extensions/ApplicationBuilderExtensions.cs =====
+using System;
+using Application.Services;
+using Application.Requests;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.Http;
+
+namespace Api.Extensions
+{
+    public static class ApplicationBuilderExtensions
+    {
+        public static WebApplication UseApi(this WebApplication app)
+        {
+            app.UseExceptionHandler("/error");
+
+            if (app.Environment.IsDevelopment())
+            {
+                app.UseSwagger();
+                app.UseSwaggerUI();
+            }
+
+            app.UseHttpsRedirection();
+            app.UseCors();
+            return app;
+        }
+
+        public static void MapWorkflowEndpoints(this WebApplication app)
+        {
+            app.MapPost("/definitions", async (
+                    CreateDefinitionRequest req,
+                    IWorkflowService svc) =>
+            {
+                var stateTuples = req.States
+                    .Select(s => (s.Name, s.IsStart, s.IsEnd));
+                var actionTuples = req.Actions
+                    .Select(a => (a.Name, a.From, a.To));
+
+                var id = await svc.CreateDefinitionAsync(req.Name, stateTuples, actionTuples);
+                return Results.Created($"/definitions/{id}", new { id });
+            });
+
+            app.MapGet("/definitions", async (IWorkflowService svc) =>
+            {
+                var list = await svc.ListDefinitionsAsync();
+                return Results.Ok(list);
+            });
+
+            app.MapGet("/definitions/{defId:guid}", async (Guid defId, IWorkflowService svc) =>
+            {
+                var dto = await svc.GetDefinitionAsync(defId);
+                return Results.Ok(dto);
+            });
+
+            app.MapPost("/definitions/{defId:guid}/instances", async (Guid defId, IWorkflowService svc) =>
+            {
+                var instId = await svc.StartInstanceAsync(defId);
+                return Results.Created($"/instances/{instId}", new { instId });
+            });
+
+            app.MapGet("/instances", async (IWorkflowService svc) =>
+            {
+                var list = await svc.ListInstancesAsync();
+                return Results.Ok(list);
+            });
+
+            app.MapGet("/instances/{instId:guid}", async (Guid instId, IWorkflowService svc) =>
+            {
+                var dto = await svc.GetInstanceAsync(instId);
+                return Results.Ok(dto);
+            });
+
+            app.MapPost("/instances/{instId:guid}/actions/{actionId:guid}",
+                async (Guid instId, Guid actionId, IWorkflowService svc) =>
+            {
+                await svc.PerformActionAsync(instId, actionId);
+                return Results.NoContent();
+            });
+
+            app.Map("/error", (HttpContext ctx) =>
+            {
+                var ex = ctx.Features.Get<IExceptionHandlerFeature>()?.Error;
+                return Results.Problem(detail: ex?.Message, statusCode: 500);
+            });
+            // disable state
+            app.MapPatch("/definitions/{defId:guid}/states/{stateId:guid}/disable",
+                async (Guid defId, Guid stateId, IWorkflowService svc) =>
+            {
+                await svc.DisableStateAsync(defId, stateId);
+                return Results.NoContent();
+            });
+
+            // enable state
+            app.MapPatch("/definitions/{defId:guid}/states/{stateId:guid}/enable",
+                async (Guid defId, Guid stateId, IWorkflowService svc) =>
+            {
+                await svc.EnableStateAsync(defId, stateId);
+                return Results.NoContent();
+            });
+
+            // disable action
+            app.MapPatch("/definitions/{defId:guid}/actions/{actionId:guid}/disable",
+                async (Guid defId, Guid actionId, IWorkflowService svc) =>
+            {
+                await svc.DisableActionAsync(defId, actionId);
+                return Results.NoContent();
+            });
+
+            // enable action
+            app.MapPatch("/definitions/{defId:guid}/actions/{actionId:guid}/enable",
+                async (Guid defId, Guid actionId, IWorkflowService svc) =>
+            {
+                await svc.EnableActionAsync(defId, actionId);
+                return Results.NoContent();
+            });
+
+        }
+    }
+}
+
+
+===== ./Api/Extensions/ServiceCollectionExtensions.cs =====
+using Application.Mapping;
+using Application.Services;
+using Domain.Interfaces;
+using Infrastructure.Data;
+using Infrastructure.Repositories;
+using Microsoft.EntityFrameworkCore;
+
+namespace Api.Extensions
+{
+    public static class ServiceCollectionExtensions
+    {
+        public static IServiceCollection AddInfrastructure(this IServiceCollection services)
+        {
+            services.AddSingleton<IWorkflowDefinitionRepository, WorkflowDefinitionRepository>();
+            services.AddSingleton<IWorkflowInstanceRepository, WorkflowInstanceRepository>();
+            return services;
+        }
+
+        public static IServiceCollection AddApplication(this IServiceCollection services)
+        {
+            services.AddScoped<IWorkflowService, WorkflowService>();
+            services.AddAutoMapper(cfg => cfg.AddProfile<WorkflowMappingProfile>());
+            return services;
+        }
+
+        public static IServiceCollection AddApi(this IServiceCollection services)
+        {
+            services.AddEndpointsApiExplorer();
+            services.AddSwaggerGen();
+            services.AddCors(opts => opts.AddDefaultPolicy(pb => pb.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
+            return services;
+        }
+    }
+}
+
+===== ./Api/Program.cs =====
+using Api.Extensions;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services
+    .AddInfrastructure()
+    .AddApplication()
+    .AddApi();
+
+var app = builder.Build();
+
+app.UseApi();
+app.MapWorkflowEndpoints();
+
+app.Run();
+
+===== ./Application/Application.csproj =====
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\Domain\Domain.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="AutoMapper" Version="12.*" />
+  </ItemGroup>
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>
+
+===== ./Application/Class1.cs =====
+﻿namespace Application;
+
+public class Class1
+{
+
+}
+
+===== ./Application/DTOs/DefinitionActionDto.cs =====
+using System;
+using System.Collections.Generic;
+
+namespace Application.DTOs
+{
+    public record DefinitionActionDto(
+        Guid Id,
+        string Name,
+        IEnumerable<Guid> FromStateIds,
+        Guid ToStateId,
+        bool Enabled
+    );
+}
+
+===== ./Application/DTOs/DefinitionStateDto.cs =====
+using System;
+
+namespace Application.DTOs
+{
+    public record DefinitionStateDto(
+        Guid Id,
+        string Name,
+        bool IsStart,
+        bool IsEnd,
+        bool Enabled
+    );
+}
+
+===== ./Application/DTOs/HistoryEntryDto.cs =====
+namespace Application.DTOs
+{
+    public record HistoryEntryDto(Guid ActionId, DateTime PerformedAt);
+}
+
+===== ./Application/DTOs/InstanceSummaryDto.cs =====
+namespace Application.DTOs
+{
+    public class InstanceSummaryDto
+    {
+        public Guid InstanceId { get; init; }
+        public Guid DefinitionId { get; init; }
+        public Guid CurrentStateId { get; init; }
+        public DateTime CreatedAt { get; init; }
+    }
+}
+
+===== ./Application/DTOs/WorkflowDefinitionDto.cs =====
+namespace Application.DTOs
+{
+    public class WorkflowDefinitionDto
+    {
+        public Guid DefinitionId { get; init; }
+        public string Name { get; init; } = null!;
+        public IEnumerable<DefinitionStateDto> States { get; init; } = Array.Empty<DefinitionStateDto>();
+        public IEnumerable<DefinitionActionDto> Actions { get; init; } = Array.Empty<DefinitionActionDto>();
+    }
+}
+
+===== ./Application/DTOs/WorkflowInstanceDto.cs =====
+namespace Application.DTOs
+{
+    public class WorkflowInstanceDto
+    {
+        public Guid InstanceId { get; init; }
+        public Guid CurrentStateId { get; init; }
+        public DateTime CreatedAt { get; init; }
+        public IEnumerable<HistoryEntryDto> History { get; init; } = Array.Empty<HistoryEntryDto>();
+    }
+}
+
+===== ./Application/Mapping/WorkflowMappingProfile.cs =====
+using System.Linq;
+using AutoMapper;
+using Application.Requests;
+using Application.DTOs;
+using Domain.Entities;
+
+namespace Application.Mapping
+{
+    public class WorkflowMappingProfile : Profile
+    {
+        public WorkflowMappingProfile()
+        {
+            // Definition → DTO
+            CreateMap<WorkflowDefinition, WorkflowDefinitionDto>()
+                .ForMember(d => d.DefinitionId, o => o.MapFrom(s => s.Id))
+                .ForMember(d => d.States, o => o.MapFrom(s => s.States))
+                .ForMember(d => d.Actions, o => o.MapFrom(s => s.Actions));
+
+            // State → DefinitionStateDto
+            CreateMap<State, DefinitionStateDto>()
+                .ForMember(d => d.Id, o => o.MapFrom(s => s.Id))
+                .ForMember(d => d.Name, o => o.MapFrom(s => s.Name))
+                .ForMember(d => d.IsStart, o => o.MapFrom(s => s.IsStart))
+                .ForMember(d => d.IsEnd, o => o.MapFrom(s => s.IsEnd))
+                .ForMember(d => d.Enabled, o => o.MapFrom(s => s.Enabled));
+
+            // Action → DefinitionActionDto
+            CreateMap<Domain.Entities.Action, DefinitionActionDto>()
+                .ForMember(d => d.Id, o => o.MapFrom(a => a.Id))
+                .ForMember(d => d.Name, o => o.MapFrom(a => a.Name))
+                .ForMember(d => d.FromStateIds, o => o.MapFrom(a => a.FromStateIds))
+                .ForMember(d => d.ToStateId, o => o.MapFrom(a => a.ToStateId))
+                .ForMember(d => d.Enabled, o => o.MapFrom(a => a.Enabled));
+
+            // Instance → summary / detail
+            CreateMap<WorkflowInstance, InstanceSummaryDto>()
+                .ForMember(d => d.InstanceId, o => o.MapFrom(s => s.Id))
+                .ForMember(d => d.DefinitionId, o => o.MapFrom(s => s.DefinitionId))
+                .ForMember(d => d.CurrentStateId, o => o.MapFrom(s => s.CurrentStateId))
+                .ForMember(d => d.CreatedAt, o => o.MapFrom(s => s.CreatedAt));
+
+            CreateMap<WorkflowInstance, WorkflowInstanceDto>()
+                .ForMember(d => d.InstanceId, o => o.MapFrom(s => s.Id))
+                .ForMember(d => d.CurrentStateId, o => o.MapFrom(s => s.CurrentStateId))
+                .ForMember(d => d.CreatedAt, o => o.MapFrom(s => s.CreatedAt))
+                .ForMember(d => d.History, o => o.MapFrom(s => s.History));
+
+            CreateMap<InstanceHistoryEntry, HistoryEntryDto>();
+        }
+    }
+}
+
+===== ./Application/Requests/CreateDefinitionRequest.cs =====
+using System;
+using System.Collections.Generic;
+
+namespace Application.Requests
+{
+    public class CreateDefinitionRequest
+    {
+        public string Name { get; set; } = null!;
+        public IEnumerable<StateDto> States { get; set; } = Array.Empty<StateDto>();
+        public IEnumerable<ActionDto> Actions { get; set; } = Array.Empty<ActionDto>();
+    }
+
+    public record StateDto(string Name, bool IsStart, bool IsEnd);
+
+    public record ActionDto(
+        string Name,
+        IEnumerable<Guid> FromStates,
+        Guid ToState
+    );
+}
+
+===== ./Application/Services/IWorkflowService.cs =====
+using Application.DTOs;
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+
+namespace Application.Services
+{
+    public interface IWorkflowService
+    {
+        Task<Guid> CreateDefinitionAsync(
+            string name,
+            IEnumerable<(string name, bool isStart, bool isEnd)> states,
+            IEnumerable<(string name, IEnumerable<Guid> fromStates, Guid toState)> actions
+        );
+
+        Task<Guid> StartInstanceAsync(Guid definitionId);
+        Task PerformActionAsync(Guid instanceId, Guid actionId);
+        Task<WorkflowInstanceDto> GetInstanceAsync(Guid instanceId);
+        Task<IEnumerable<WorkflowDefinitionDto>> ListDefinitionsAsync();
+        Task<WorkflowDefinitionDto> GetDefinitionAsync(Guid definitionId);
+        Task<IEnumerable<InstanceSummaryDto>> ListInstancesAsync();
+
+        // new
+        Task DisableStateAsync(Guid definitionId, Guid stateId);
+        Task EnableStateAsync(Guid definitionId, Guid stateId);
+        Task DisableActionAsync(Guid definitionId, Guid actionId);
+        Task EnableActionAsync(Guid definitionId, Guid actionId);
+    }
+}
+
+===== ./Application/Services/WorkflowService.cs =====
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using Application.DTOs;
+using Domain.Entities;
+using Domain.Interfaces;
+using AutoMapper;
+using WorkflowAction = Domain.Entities.Action;
+
+namespace Application.Services
+{
+    public class WorkflowService : IWorkflowService
+    {
+        private readonly IWorkflowDefinitionRepository _defs;
+        private readonly IWorkflowInstanceRepository _insts;
+        private readonly IMapper _mapper;
+
+        public WorkflowService(
+            IWorkflowDefinitionRepository defs,
+            IWorkflowInstanceRepository insts,
+            IMapper mapper)
+        {
+            _defs = defs;
+            _insts = insts;
+            _mapper = mapper;
+        }
+
+        // … CreateDefinitionAsync, StartInstanceAsync, PerformActionAsync unchanged …
+
+        public async Task<WorkflowInstanceDto> GetInstanceAsync(Guid instanceId)
+        {
+            var instance = await _insts.GetByIdAsync(instanceId)
+                ?? throw new KeyNotFoundException($"Instance '{instanceId}' not found.");
+            return _mapper.Map<WorkflowInstanceDto>(instance);
+        }
+
+        public async Task<IEnumerable<WorkflowDefinitionDto>> ListDefinitionsAsync()
+        {
+            var defs = await _defs.ListAllAsync();
+            return _mapper.Map<IEnumerable<WorkflowDefinitionDto>>(defs);
+        }
+
+        public async Task<WorkflowDefinitionDto> GetDefinitionAsync(Guid definitionId)
+        {
+            var def = await _defs.GetByIdAsync(definitionId)
+                ?? throw new KeyNotFoundException($"Definition '{definitionId}' not found.");
+            return _mapper.Map<WorkflowDefinitionDto>(def);
+        }
+
+        public async Task<IEnumerable<InstanceSummaryDto>> ListInstancesAsync()
+        {
+            var insts = await _insts.ListAllAsync();
+            return _mapper.Map<IEnumerable<InstanceSummaryDto>>(insts);
+        }
+
+        // --- new enable/disable implementations ---
+
+        public async Task DisableStateAsync(Guid defId, Guid stateId)
+        {
+            var def = await _defs.GetByIdAsync(defId)
+                ?? throw new KeyNotFoundException($"Definition '{defId}' not found.");
+            var st = def.States.SingleOrDefault(s => s.Id == stateId)
+                ?? throw new KeyNotFoundException($"State '{stateId}' not in definition.");
+            st.Disable();
+            await _defs.UpdateAsync(def);
+        }
+
+        public async Task EnableStateAsync(Guid defId, Guid stateId)
+        {
+            var def = await _defs.GetByIdAsync(defId)
+                ?? throw new KeyNotFoundException($"Definition '{defId}' not found.");
+            var st = def.States.SingleOrDefault(s => s.Id == stateId)
+                ?? throw new KeyNotFoundException($"State '{stateId}' not in definition.");
+            st.Enable();
+            await _defs.UpdateAsync(def);
+        }
+
+        public async Task DisableActionAsync(Guid defId, Guid actionId)
+        {
+            var def = await _defs.GetByIdAsync(defId)
+                ?? throw new KeyNotFoundException($"Definition '{defId}' not found.");
+            var ac = def.Actions.SingleOrDefault(a => a.Id == actionId)
+                ?? throw new KeyNotFoundException($"Action '{actionId}' not in definition.");
+            ac.Disable();
+            await _defs.UpdateAsync(def);
+        }
+
+        public async Task EnableActionAsync(Guid defId, Guid actionId)
+        {
+            var def = await _defs.GetByIdAsync(defId)
+                ?? throw new KeyNotFoundException($"Definition '{defId}' not found.");
+            var ac = def.Actions.SingleOrDefault(a => a.Id == actionId)
+                ?? throw new KeyNotFoundException($"Action '{actionId}' not in definition.");
+            ac.Enable();
+            await _defs.UpdateAsync(def);
+        }
+    }
+}
+
+===== ./Domain/Class1.cs =====
+﻿namespace Domain;
+
+public class Class1
+{
+
+}
+
+===== ./Domain/Domain.csproj =====
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>
+
+===== ./Domain/Entities/Action.cs =====
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace Domain.Entities
+{
+    public class Action
+    {
+        public Guid Id { get; private set; }
+        public string Name { get; private set; } = null!;
+
+        // now supports multiple origins
+        public IReadOnlyCollection<Guid> FromStateIds { get; private set; }
+
+        public Guid ToStateId { get; private set; }
+        public bool Enabled { get; private set; } = true;
+        internal Guid DefinitionId { get; set; }
+
+        private Action()
+        {
+            // satisfy the non-nullable warning
+            FromStateIds = Array.Empty<Guid>();
+        }
+
+        public Action(
+            Guid id,
+            string name,
+            IEnumerable<Guid> fromStates,
+            Guid toState,
+            bool enabled = true)
+        {
+            Id = id;
+            Name = name;
+            FromStateIds = fromStates.ToList().AsReadOnly();
+            ToStateId = toState;
+            Enabled = enabled;
+        }
+
+        public void Disable() => Enabled = false;
+        public void Enable() => Enabled = true;
+    }
+}
+
+===== ./Domain/Entities/InstanceHistoryEntry.cs =====
+using System;
+
+namespace Domain.Entities
+{
+    public class InstanceHistoryEntry
+    {
+        public Guid Id { get; private set; }
+        public Guid InstanceId { get; private set; }
+        public Guid ActionId { get; private set; }
+        public DateTime PerformedAt { get; private set; }
+
+        private InstanceHistoryEntry() { }
+
+        public InstanceHistoryEntry(Guid id, Guid instanceId, Guid actionId, DateTime performedAt)
+        {
+            Id = id;
+            InstanceId = instanceId;
+            ActionId = actionId;
+            PerformedAt = performedAt;
+        }
+    }
+}
+
+===== ./Domain/Entities/State.cs =====
+using System;
+
+namespace Domain.Entities
+{
+    public class State
+    {
+        public Guid Id { get; private set; }
+        public string Name { get; private set; } = null!;
+        public bool IsStart { get; private set; }
+        public bool IsEnd { get; private set; }
+        public bool Enabled { get; private set; } = true;
+        internal Guid DefinitionId { get; set; }
+
+        private State() { }
+
+        public State(
+            Guid id,
+            string name,
+            bool isStart = false,
+            bool isEnd = false,
+            bool enabled = true)
+        {
+            Id = id;
+            Name = name;
+            IsStart = isStart;
+            IsEnd = isEnd;
+            Enabled = enabled;
+        }
+
+        public void Disable() => Enabled = false;
+        public void Enable() => Enabled = true;
+    }
+}
+
+===== ./Domain/Entities/WorkflowDefinition.cs =====
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace Domain.Entities
+{
+    public class WorkflowDefinition
+    {
+        public Guid Id { get; private set; }
+        public string Name { get; private set; } = null!;
+        private readonly List<State> _states = new();
+        private readonly List<Action> _actions = new();
+
+        public IReadOnlyCollection<State> States => _states;
+        public IReadOnlyCollection<Action> Actions => _actions;
+
+        private WorkflowDefinition() { }
+
+        public WorkflowDefinition(Guid id, string name)
+        {
+            Id = id;
+            Name = name;
+        }
+
+        public void AddState(State state)
+        {
+            if (_states.Any(s => s.Id == state.Id))
+                throw new InvalidOperationException($"State {state.Name} already added.");
+            if (state.IsStart && _states.Any(s => s.IsStart))
+                throw new InvalidOperationException("Start state already defined.");
+            _states.Add(state);
+        }
+
+        public void AddAction(Action action)
+        {
+            // validate all origins
+            foreach (var from in action.FromStateIds)
+                if (!_states.Any(s => s.Id == from))
+                    throw new InvalidOperationException($"FromState {from} not found.");
+            // validate target
+            if (!_states.Any(s => s.Id == action.ToStateId))
+                throw new InvalidOperationException($"ToState {action.ToStateId} not found.");
+
+            _actions.Add(action);
+        }
+    }
+}
+
+===== ./Domain/Entities/WorkflowInstance.cs =====
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace Domain.Entities
+{
+    public class WorkflowInstance
+    {
+        public Guid Id { get; private set; }
+        public Guid DefinitionId { get; private set; }
+        public Guid CurrentStateId { get; private set; }
+        public DateTime CreatedAt { get; private set; }
+        private readonly List<InstanceHistoryEntry> _history = new();
+        public IReadOnlyCollection<InstanceHistoryEntry> History => _history;
+
+        private WorkflowInstance() { }
+
+        public WorkflowInstance(WorkflowDefinition definition)
+        {
+            Id = Guid.NewGuid();
+            DefinitionId = definition.Id;
+            var start = definition.States.SingleOrDefault(s => s.IsStart)
+                        ?? throw new InvalidOperationException("No start state defined.");
+            CurrentStateId = start.Id;
+            CreatedAt = DateTime.UtcNow;
+        }
+
+        public void ExecuteAction(Action action, IEnumerable<State> states)
+        {
+            if (!action.Enabled)
+                throw new InvalidOperationException("Action is disabled.");
+
+            var currentState = states.SingleOrDefault(s => s.Id == CurrentStateId)
+                                ?? throw new InvalidOperationException("Current state not found.");
+            if (!currentState.Enabled)
+                throw new InvalidOperationException("Current state is disabled.");
+
+            if (!action.FromStateIds.Contains(CurrentStateId))
+                throw new InvalidOperationException("Action not valid from current state.");
+
+            CurrentStateId = action.ToStateId;
+            _history.Add(new InstanceHistoryEntry(
+                Guid.NewGuid(),
+                Id,
+                action.Id,
+                DateTime.UtcNow));
+        }
+    }
+}
+
+===== ./Domain/Interfaces/IWorkflowDefinitionRepository.cs =====
+using Domain.Entities;
+
+namespace Domain.Interfaces
+{
+    public interface IWorkflowDefinitionRepository
+    {
+        Task<WorkflowDefinition?> GetByIdAsync(Guid id);
+        Task<IEnumerable<WorkflowDefinition>> ListAllAsync();
+        Task AddAsync(WorkflowDefinition definition);
+    }
+}
+
+===== ./Domain/Interfaces/IWorkflowInstanceRepository.cs =====
+using Domain.Entities;
+
+namespace Domain.Interfaces
+{
+    public interface IWorkflowInstanceRepository
+    {
+        Task<WorkflowInstance?> GetByIdAsync(Guid id);
+        Task<IEnumerable<WorkflowInstance>> ListAllAsync();
+        Task AddAsync(WorkflowInstance instance);
+        Task UpdateAsync(WorkflowInstance instance);
+    }
+}
+
+===== ./Infrastructure/Class1.cs =====
+﻿namespace Infrastructure;
+
+public class Class1
+{
+
+}
+
+===== ./Infrastructure/Data/ActionConfiguration.cs =====
+using System;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Domain.Entities;
+
+using WorkflowAction = Domain.Entities.Action;
+
+namespace Infrastructure.Data.Configurations
+{
+    public class ActionConfiguration : IEntityTypeConfiguration<WorkflowAction>
+    {
+        public void Configure(EntityTypeBuilder<WorkflowAction> builder)
+        {
+            builder.ToTable("Actions");
+            builder.HasKey(a => a.Id);
+
+            builder.Property(a => a.Name)
+                   .IsRequired()
+                   .HasMaxLength(100);
+
+            builder.Property<Guid>("DefinitionId");
+            builder.HasIndex("DefinitionId");
+
+            builder.Property(a => a.FromStateId).IsRequired();
+            builder.Property(a => a.ToStateId).IsRequired();
+            builder.Property(a => a.Enabled).IsRequired();
+
+            builder.HasOne<State>()
+                   .WithMany()
+                   .HasForeignKey(a => a.FromStateId)
+                   .OnDelete(DeleteBehavior.Restrict);
+
+            builder.HasOne<State>()
+                   .WithMany()
+                   .HasForeignKey(a => a.ToStateId)
+                   .OnDelete(DeleteBehavior.Restrict);
+        }
+    }
+}
+
+===== ./Infrastructure/Data/InstanceHistoryEntryConfiguration.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Domain.Entities;
+
+namespace Infrastructure.Data.Configurations
+{
+    public class InstanceHistoryEntryConfiguration : IEntityTypeConfiguration<InstanceHistoryEntry>
+    {
+        public void Configure(EntityTypeBuilder<InstanceHistoryEntry> builder)
+        {
+            builder.ToTable("InstanceHistory");
+            builder.HasKey(h => h.Id);
+
+            builder.Property(h => h.InstanceId)
+                   .IsRequired();
+
+            builder.Property(h => h.ActionId)
+                   .IsRequired();
+
+            builder.Property(h => h.PerformedAt)
+                   .IsRequired();
+        }
+    }
+}
+
+===== ./Infrastructure/Data/StateConfiguration.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Domain.Entities;
+
+namespace Infrastructure.Data.Configurations
+{
+    public class StateConfiguration : IEntityTypeConfiguration<State>
+    {
+        public void Configure(EntityTypeBuilder<State> builder)
+        {
+            builder.ToTable("States");
+            builder.HasKey(s => s.Id);
+
+            builder.Property(s => s.Name)
+                   .IsRequired()
+                   .HasMaxLength(100);
+
+            builder.Property(s => s.IsStart)
+                   .IsRequired();
+
+            builder.Property(s => s.IsEnd)
+                   .IsRequired();
+
+            builder.Property(s => s.Enabled)
+                    .IsRequired();
+
+            builder.Property<Guid>("DefinitionId");
+            builder.HasIndex("DefinitionId");
+        }
+    }
+}
+
+===== ./Infrastructure/Data/WorkflowDbContext.cs =====
+//To be used if we use a database to store data
+using Microsoft.EntityFrameworkCore;
+using Domain.Entities;
+using WorkflowAction = Domain.Entities.Action;
+using Infrastructure.Data.Configurations;
+
+namespace Infrastructure.Data
+{
+    public class WorkflowDbContext : DbContext
+    {
+        public WorkflowDbContext(DbContextOptions<WorkflowDbContext> options)
+            : base(options) { }
+
+        public DbSet<WorkflowDefinition> WorkflowDefinitions { get; set; } = null!;
+        public DbSet<State> States { get; set; } = null!;
+        public DbSet<WorkflowAction> Actions { get; set; } = null!;
+        public DbSet<WorkflowInstance> WorkflowInstances { get; set; } = null!;
+        public DbSet<InstanceHistoryEntry> InstanceHistory { get; set; } = null!;
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            modelBuilder.ApplyConfiguration(new WorkflowDefinitionConfiguration());
+            modelBuilder.ApplyConfiguration(new StateConfiguration());
+            modelBuilder.ApplyConfiguration(new ActionConfiguration());
+            modelBuilder.ApplyConfiguration(new WorkflowInstanceConfiguration());
+            modelBuilder.ApplyConfiguration(new InstanceHistoryEntryConfiguration());
+        }
+    }
+}
+
+===== ./Infrastructure/Data/WorkflowDefinitionConfiguration.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Domain.Entities;
+
+namespace Infrastructure.Data.Configurations
+{
+    public class WorkflowDefinitionConfiguration : IEntityTypeConfiguration<WorkflowDefinition>
+    {
+        public void Configure(EntityTypeBuilder<WorkflowDefinition> builder)
+        {
+            builder.ToTable("WorkflowDefinitions");
+            builder.HasKey(w => w.Id);
+            builder.Property(w => w.Name)
+                   .IsRequired()
+                   .HasMaxLength(200);
+
+            builder.HasMany(w => w.States)
+                   .WithOne()
+                   .HasForeignKey("DefinitionId");
+
+            builder.HasMany(w => w.Actions)
+                   .WithOne()
+                   .HasForeignKey("DefinitionId");
+
+        }
+    }
+}
+
+===== ./Infrastructure/Data/WorkflowInstanceConfiguration.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Domain.Entities;
+
+namespace Infrastructure.Data.Configurations
+{
+    public class WorkflowInstanceConfiguration : IEntityTypeConfiguration<WorkflowInstance>
+    {
+        public void Configure(EntityTypeBuilder<WorkflowInstance> builder)
+        {
+            builder.ToTable("WorkflowInstances");
+            builder.HasKey(i => i.Id);
+
+            builder.Property(i => i.DefinitionId)
+                   .IsRequired();
+
+            builder.Property(i => i.CurrentStateId)
+                   .IsRequired();
+
+            builder.Property(i => i.CreatedAt)
+                   .IsRequired();
+
+            builder.HasMany(i => i.History)
+                   .WithOne()
+                   .HasForeignKey(h => h.InstanceId)
+                   .OnDelete(DeleteBehavior.Cascade);
+        }
+    }
+}
+
+===== ./Infrastructure/Infrastructure.csproj =====
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\Domain\Domain.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.7" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.*">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.7" />
+  </ItemGroup>
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>
+
+===== ./Infrastructure/Repositories/WorkflowDefinitionRepository.cs =====
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Domain.Entities;
+using Domain.Interfaces;
+using Infrastructure.Storage;
+
+namespace Infrastructure.Repositories
+{
+    public class WorkflowDefinitionRepository : IWorkflowDefinitionRepository
+    {
+        private readonly InMemoryStore<WorkflowDefinition> _store;
+
+        public WorkflowDefinitionRepository()
+        {
+            _store = new InMemoryStore<WorkflowDefinition>("definitions.json");
+        }
+
+        public Task AddAsync(WorkflowDefinition definition)
+            => _store.AddAsync(definition.Id, definition);
+
+        public Task<WorkflowDefinition?> GetByIdAsync(Guid id)
+            => _store.GetAsync(id);
+
+        public Task<IEnumerable<WorkflowDefinition>> ListAllAsync()
+            => _store.ListAsync();
+
+        // new
+        public Task UpdateAsync(WorkflowDefinition definition)
+            => _store.UpdateAsync(definition.Id, definition);
+    }
+}
+
+===== ./Infrastructure/Repositories/WorkflowInstanceRepository.cs =====
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Domain.Entities;
+using Domain.Interfaces;
+using Infrastructure.Storage;
+
+namespace Infrastructure.Repositories
+{
+    public class WorkflowInstanceRepository : IWorkflowInstanceRepository
+    {
+        private readonly InMemoryStore<WorkflowInstance> _store;
+
+        public WorkflowInstanceRepository()
+        {
+            _store = new InMemoryStore<WorkflowInstance>("instances.json");
+        }
+
+        public Task AddAsync(WorkflowInstance instance)
+            => _store.AddAsync(instance.Id, instance);
+
+        public Task<WorkflowInstance?> GetByIdAsync(Guid id)
+            => _store.GetAsync(id);
+
+        public Task<IEnumerable<WorkflowInstance>> ListAllAsync()
+            => _store.ListAsync();
+
+        public Task UpdateAsync(WorkflowInstance instance)
+            => _store.UpdateAsync(instance.Id, instance);
+    }
+}
+
+===== ./Infrastructure/Storage/InMemoryStore.cs =====
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.IO;
+using System.Text.Json;
+using System.Threading.Tasks;
+
+namespace Infrastructure.Storage
+{
+    /// A simple in-memory store that can snapshot to a JSON file.
+
+    public class InMemoryStore<T>
+    {
+        private readonly ConcurrentDictionary<Guid, T> _dict = new();
+        private readonly string? _persistPath;
+
+        public InMemoryStore(string? persistPath = null)
+        {
+            _persistPath = persistPath;
+            if (_persistPath != null && File.Exists(_persistPath))
+            {
+                var json = File.ReadAllText(_persistPath);
+                var items = JsonSerializer.Deserialize<List<T>>(json,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (items != null)
+                    foreach (var item in items)
+                    {
+                        var idProp = item.GetType().GetProperty("Id");
+                        if (idProp?.GetValue(item) is Guid id)
+                            _dict[id] = item;
+                    }
+            }
+        }
+
+        public Task AddAsync(Guid id, T item)
+        {
+            _dict[id] = item;
+            return PersistAsync();
+        }
+
+        public Task UpdateAsync(Guid id, T item)
+        {
+            _dict[id] = item;
+            return PersistAsync();
+        }
+
+        public Task<T?> GetAsync(Guid id)
+            => Task.FromResult(_dict.TryGetValue(id, out var item) ? item : default);
+
+        public Task<IEnumerable<T>> ListAsync()
+            => Task.FromResult<IEnumerable<T>>(_dict.Values);
+
+        private Task PersistAsync()
+        {
+            if (_persistPath == null) return Task.CompletedTask;
+            var json = JsonSerializer.Serialize(_dict.Values,
+                new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(_persistPath, json);
+            return Task.CompletedTask;
+        }
+    }
+}
+

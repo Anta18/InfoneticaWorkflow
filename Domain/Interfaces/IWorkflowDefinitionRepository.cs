@@ -1,5 +1,4 @@
 using Domain.Entities;
-
 namespace Domain.Interfaces
 {
     public interface IWorkflowDefinitionRepository
@@ -7,5 +6,6 @@ namespace Domain.Interfaces
         Task<WorkflowDefinition?> GetByIdAsync(Guid id);
         Task<IEnumerable<WorkflowDefinition>> ListAllAsync();
         Task AddAsync(WorkflowDefinition definition);
+        Task UpdateAsync(WorkflowDefinition definition);
     }
 }

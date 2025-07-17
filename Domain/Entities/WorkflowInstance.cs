@@ -1,7 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-
 namespace Domain.Entities
 {
     public class WorkflowInstance
@@ -20,7 +16,7 @@ namespace Domain.Entities
             Id = Guid.NewGuid();
             DefinitionId = definition.Id;
             var start = definition.States.SingleOrDefault(s => s.IsStart)
-                       ?? throw new InvalidOperationException("No start state defined.");
+                        ?? throw new InvalidOperationException("No start state defined.");
             CurrentStateId = start.Id;
             CreatedAt = DateTime.UtcNow;
         }
@@ -31,15 +27,19 @@ namespace Domain.Entities
                 throw new InvalidOperationException("Action is disabled.");
 
             var currentState = states.SingleOrDefault(s => s.Id == CurrentStateId)
-                ?? throw new InvalidOperationException("Current state not found.");
+                                ?? throw new InvalidOperationException("Current state not found.");
             if (!currentState.Enabled)
                 throw new InvalidOperationException("Current state is disabled.");
 
-            if (action.FromStateId != CurrentStateId)
-                throw new InvalidOperationException("Invalid action for current state.");
+            if (!action.FromStateIds.Contains(CurrentStateId))
+                throw new InvalidOperationException("Action not valid from current state.");
 
             CurrentStateId = action.ToStateId;
-            _history.Add(new InstanceHistoryEntry(Guid.NewGuid(), Id, action.Id, DateTime.UtcNow));
+            _history.Add(new InstanceHistoryEntry(
+                Guid.NewGuid(),
+                Id,
+                action.Id,
+                DateTime.UtcNow));
         }
     }
 }

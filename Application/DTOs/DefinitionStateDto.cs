@@ -4,6 +4,7 @@ namespace Application.DTOs
         Guid Id,
         string Name,
         bool IsStart,
-        bool IsEnd
+        bool IsEnd,
+        bool Enabled
     );
 }

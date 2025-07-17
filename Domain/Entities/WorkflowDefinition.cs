@@ -1,7 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-
 namespace Domain.Entities
 {
     public class WorkflowDefinition
@@ -33,10 +29,14 @@ namespace Domain.Entities
 
         public void AddAction(Action action)
         {
-            if (!_states.Any(s => s.Id == action.FromStateId))
-                throw new InvalidOperationException($"FromState {action.FromStateId} not found.");
+            // validate all origins
+            foreach (var from in action.FromStateIds)
+                if (!_states.Any(s => s.Id == from))
+                    throw new InvalidOperationException($"FromState {from} not found.");
+            // validate target
             if (!_states.Any(s => s.Id == action.ToStateId))
                 throw new InvalidOperationException($"ToState {action.ToStateId} not found.");
+
             _actions.Add(action);
         }
     }
