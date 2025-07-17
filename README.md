@@ -1,6 +1,6 @@
 # Workflow Engine API
 
-An ASP .NET Core Minimal-API that lets you **define** state-machine workflows in memory (with optional JSON persistence) and **run** instances through them.
+An ASP .NET Core Minimal-API that lets you **define** state-machine workflows in memory (persisted to JSON) and **run** instances through them. Supports multi-state transitions and runtime enable/disable of states and actions.
 
 ---
 
@@ -20,8 +20,8 @@ An ASP .NET Core Minimal-API that lets you **define** state-machine workflows in
 
 | Concept           | Class                                  | Key Members                                                                                |
 | ----------------- | -------------------------------------- | ------------------------------------------------------------------------------------------ |
-| **State**         | `Domain.Entities.State`                | `Id`, `Name`, `IsStart`, `IsEnd`, `Enabled`                                                |
-| **Action**        | `Domain.Entities.Action`               | `Id`, `Name`, `FromStateId`, `ToStateId`, `Enabled`                                        |
+| **State**         | `Domain.Entities.State`                | `Id`, `Name`, `IsStart`, `IsEnd`, `Enabled`, `Enable()`, `Disable()`                       |
+| **Action**        | `Domain.Entities.Action`               | `Id`, `Name`, `FromStateIds` (multiple), `ToStateId`, `Enabled`, `Enable()`, `Disable()`   |
 | **Definition**    | `Domain.Entities.WorkflowDefinition`   | `Id`, `Name`, `States: List<State>`, `Actions: List<Action>`                               |
 | **Instance**      | `Domain.Entities.WorkflowInstance`     | `Id`, `DefinitionId`, `CurrentStateId`, `CreatedAt`, `History: List<InstanceHistoryEntry>` |
 | **History Entry** | `Domain.Entities.InstanceHistoryEntry` | `Id`, `InstanceId`, `ActionId`, `PerformedAt`                                              |
@@ -30,77 +30,85 @@ An ASP .NET Core Minimal-API that lets you **define** state-machine workflows in
 
 ## API Endpoints
 
-> All endpoints are defined in `Api/Extensions/ApplicationBuilderExtensions.cs`.
+All endpoints are wired up in `Api/Extensions/ApplicationBuilderExtensions.cs`.
 
-| Area            | Action                             | HTTP                                          | Code Location                                            |
-| --------------- | ---------------------------------- | --------------------------------------------- | -------------------------------------------------------- |
-| **Definitions** | Create definition                  | `POST /definitions`                           | MapWorkflowEndpoints → `CreateDefinitionRequest` handler |
-|                 | List all definitions               | `GET /definitions`                            | MapWorkflowEndpoints                                     |
-|                 | Get one definition                 | `GET /definitions/{defId}`                    | MapWorkflowEndpoints                                     |
-| **Instances**   | Start new instance                 | `POST /definitions/{defId}/instances`         | MapWorkflowEndpoints                                     |
-|                 | List all instances                 | `GET /instances`                              | MapWorkflowEndpoints                                     |
-|                 | Get one instance (state & history) | `GET /instances/{instId}`                     | MapWorkflowEndpoints                                     |
-|                 | Execute action on instance         | `POST /instances/{instId}/actions/{actionId}` | MapWorkflowEndpoints                                     |
+### Definitions
+
+| Method | Route                                             | Description                       |
+| ------ | ------------------------------------------------- | --------------------------------- |
+| POST   | `/definitions`                                    | Create a new workflow definition  |
+| GET    | `/definitions`                                    | List all definitions              |
+| GET    | `/definitions/{defId}`                            | Get a specific definition         |
+| PATCH  | `/definitions/{defId}/states/{stateId}/disable`   | Disable a state in a definition   |
+| PATCH  | `/definitions/{defId}/states/{stateId}/enable`    | Enable a state in a definition    |
+| PATCH  | `/definitions/{defId}/actions/{actionId}/disable` | Disable an action in a definition |
+| PATCH  | `/definitions/{defId}/actions/{actionId}/enable`  | Enable an action in a definition  |
+
+### Instances
+
+| Method | Route                                    | Description                           |
+| ------ | ---------------------------------------- | ------------------------------------- |
+| POST   | `/definitions/{defId}/instances`         | Start a new instance for a definition |
+| GET    | `/instances`                             | List all instances                    |
+| GET    | `/instances/{instId}`                    | Get instance state & history          |
+| POST   | `/instances/{instId}/actions/{actionId}` | Execute an action on an instance      |
 
 ---
 
 ## Validation Rules
 
-All of these checks live in your **domain entity** methods:
+Enforced in the **domain entities**:
 
 1. **Definition creation** (`WorkflowDefinition.AddState` & `AddAction`):
 
    - No duplicate state IDs
    - Exactly one `IsStart == true`
-   - Both `FromStateId` and `ToStateId` must exist in `States`
-     _(see Domain/Entities/WorkflowDefinition.cs)_
+   - Each action’s **all** `FromStateIds` must exist in `States`
+   - Each action’s `ToStateId` must exist in `States`
 
-2. **Instance construction** (`new WorkflowInstance(def)`):
+2. **Instance start** (`new WorkflowInstance(definition)`):
 
-   - Must have exactly one start state; sets `CurrentStateId` to that
+   - Must have exactly one start state
+   - Sets `CurrentStateId` to that state
 
 3. **Action execution** (`WorkflowInstance.ExecuteAction`):
 
    - Action must be `Enabled`
    - Current state must be found and `Enabled`
-   - `action.FromStateId` must equal `CurrentStateId`
-   - Throws clear `InvalidOperationException` messages on failure
-     _(see Domain/Entities/WorkflowInstance.cs)_
+   - `CurrentStateId` must be contained in the action’s `FromStateIds`
+   - Throws `InvalidOperationException` on violations
 
-4. **Service-level guards**:
+4. **Service-level guards** (`WorkflowService`):
 
    - Missing definition or instance → `KeyNotFoundException`
-   - Action not in definition → `InvalidOperationException`
-     _(see Application/Services/WorkflowService.cs)_
+   - Action/state not in definition → `KeyNotFoundException`
+   - Disabled action/state → `InvalidOperationException`
 
 ---
 
 ## Persistence
 
-- **In‐memory store**:
-  `Infrastructure.Storage.InMemoryStore<T>` uses a `ConcurrentDictionary<Guid,T>`.
-- **Optional JSON snapshot**:
-  On every `AddAsync` / `UpdateAsync` it `File.WriteAllText(...)` to `definitions.json` and `instances.json`.
-- **No database**:
-  All EF Core references / `WorkflowDbContext` have been removed.
+- **In-memory store** backed by `Infrastructure.Storage.InMemoryStore<T>`
+- **JSON snapshot** on every `AddAsync`/`UpdateAsync` to `definitions.json` and `instances.json`
+- **No EF Core usage** at runtime; all EF configuration classes have been stubbed or removed
 
 ---
 
 ## Design & Readability
 
-- **Clear layers**:
+- **Layered Architecture**
 
-  - **Domain**: Entities & business rules only
-  - **Application**: DTOs, AutoMapper profiles, Service orchestration
-  - **Infrastructure**: Repositories + InMemoryStore
-  - **API**: Minimal endpoints, DI setup, exception handler
+  - **Domain**: Entities & business rules
+  - **Application**: DTOs, AutoMapper profiles, service orchestration
+  - **Infrastructure**: In-memory store, repository implementations
+  - **API**: Minimal-API endpoints, DI setup, exception handling
 
-- **Modular**:
+- **Modularity**
 
-  - `ServiceCollectionExtensions` wires up repos & services
-  - `ApplicationBuilderExtensions` wires endpoints
+  - `ServiceCollectionExtensions` wires services and repos
+  - `ApplicationBuilderExtensions` wires HTTP endpoints
 
-- **Strong typing**:
+- **Strong Typing**
 
   - GUIDs everywhere, record types for DTOs, no magic strings
 
@@ -108,34 +116,38 @@ All of these checks live in your **domain entity** methods:
 
 ## Maintainability & Pragmatism
 
-- **Light abstraction**: In-memory store is a single reusable class, but not over-engineered.
-- **Easily swappable**: If you decide to add a real database, simply replace `InMemoryStore` + repos with `DbContext` + EF.
-- **Extension methods** keep `Program.cs` extremely concise.
+- **Simple Abstraction**: Single reusable in-memory store, not over-engineered
+- **Swappable Persistence**: Replace in-memory repos with EF-backed ones if needed
+- **Concise Startup**: `Program.cs` remains minimal
 
 ---
 
 ## Running & Testing
 
-1. **Restore & build**:
+1. **Restore & build**
 
    ```bash
    dotnet clean && dotnet build
    ```
 
-2. **Run the API**:
+2. **Run the API**
 
    ```bash
    cd Api
    dotnet run
    ```
 
-3. **Swagger UI**:
-   Browse to `https://localhost:5001/swagger` (or `http://localhost:5000/swagger`).
+3. **Swagger UI**
+   Browse to `http://localhost:5082/swagger` to explore and test all endpoints interactively.
 
-4. **Postman / curl**:
-   Follow the Postman collection and automated tests you already configured:
+4. **Manual Tests**
 
-   - `POST /definitions` → returns `{ id: ... }`
-   - `GET /definitions` → returns your definition
-   - `POST /definitions/{id}/instances` → returns `{ instId: ... }`
-   - `GET /instances/{instId}` → shows `currentStateId`, `history`
+   - **Create** a definition with multi-state transitions
+   - **List** definitions and verify fields (including `Enabled`)
+   - **Start** an instance and **execute** actions
+   - **Disable** a state/action, attempt invalid transition → expect 400/500 with clear message
+   - **Enable** it back and verify normal flow
+
+---
+
+> Feel free to raise issues or suggest enhancements in the repository’s issue tracker. Enjoy building your workflows!
